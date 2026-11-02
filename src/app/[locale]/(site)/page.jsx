@@ -63,8 +63,6 @@ export default function HomePage({ params }) {
         </div>
       </section>
 
-      <DailyMartyr labels={{ eyebrow: t("home.martyr.eyebrow"), title: t("home.martyr.title"), loading: t("home.martyr.loading"), empty: t("home.martyr.empty"), source: t("home.martyr.source") }} />
-
       <section id="what" className="container-page py-20">
         <div className="grid items-center gap-10 md:grid-cols-[1fr_1fr] lg:gap-16">
           <div>
@@ -153,6 +151,8 @@ export default function HomePage({ params }) {
           ))}
         </div>
       </section>
+
+      <DailyMartyr labels={{ eyebrow: t("home.martyr.eyebrow"), title: t("home.martyr.title"), loading: t("home.martyr.loading"), empty: t("home.martyr.empty"), source: t("home.martyr.source") }} />
 
       <section id="receive" className="bg-mist py-16">
         <div className="container-page grid items-center gap-6 md:grid-cols-[2fr_1fr]">

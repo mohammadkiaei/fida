@@ -51,8 +51,8 @@ export const en = {
       sentence: "“I am the owner of this document and I read the number {n} out loud.”",
     },
     martyr: {
-      eyebrow: "Daily story",
-      title: "Biography of a martyred non-Iranian national",
+      eyebrow: "In remembrance",
+      title: "Martyr of the day and biography",
       loading: "Loading today's story…",
       empty: "Today's story has not been published by the service yet.",
       source: "Story source",

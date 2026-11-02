@@ -3,18 +3,24 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 
+const featuredMartyr = {
+  name: "زوریک مرادیان",
+  nationality: "ایرانی ارمنی‌تبار",
+  birthDate: "۷ تیر ۱۳۳۹، تهران",
+  deathDate: "۱۹ مهر ۱۳۵۹، پیرانشهر",
+  imageUrl: "/images/martyrs/zorik-moradian.jpg",
+  biography: "زوریک مرادیان سرباز وظیفهٔ ایرانی ارمنی‌تبار بود و نخستین نظامی ارمنی ایران شناخته می‌شود که در جنگ ایران و عراق جان باخت. او بر اثر اصابت ترکش خمپاره و جراحت شدید، حدود ۱۹ روز پس از آغاز جنگ، در پیرانشهر درگذشت.",
+};
+
 export default function DailyMartyr({ labels }) {
-  const [martyr, setMartyr] = useState(null);
-  const [loaded, setLoaded] = useState(false);
+  const [martyr, setMartyr] = useState(featuredMartyr);
 
   useEffect(() => {
     let active = true;
     api.getMartyrOfDay().then((data) => {
-      if (active) setMartyr(data?.martyr || data || null);
+      if (active && (data?.martyr || data)?.name) setMartyr(data?.martyr || data);
     }).catch(() => {
-      if (active) setMartyr(null);
-    }).finally(() => {
-      if (active) setLoaded(true);
+      // Keep the locally supplied featured profile available if the service is offline.
     });
     return () => { active = false; };
   }, []);
@@ -34,9 +40,7 @@ export default function DailyMartyr({ labels }) {
               {martyr.sourceUrl && <a href={martyr.sourceUrl} target="_blank" rel="noreferrer" className="mt-4 inline-block text-sm font-medium text-brand underline">{martyr.sourceTitle || labels.source}</a>}
             </div>
           </div>
-        ) : (
-          <p className="mt-4 leading-8 text-muted">{loaded ? labels.empty : labels.loading}</p>
-        )}
+        ) : <p className="mt-4 leading-8 text-muted">{labels.empty}</p>}
       </div>
     </section>
   );

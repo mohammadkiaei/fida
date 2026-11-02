@@ -50,7 +50,7 @@ Mock password login uses the demo password `fida-demo` for seeded users. This is
 
 | متد و مسیر | بدنه / پاسخ |
 |---|---|
-| `GET /public/martyr-of-day` | بدون ورود؛ روایت روز جاری در منطقه‌ی زمانی مورد استفاده‌ی سامانه: `{id, date, name, nationality, birthDate?, deathDate?, imageUrl?, biography, sourceTitle?, sourceUrl?}`. بک‌اند هر روز رکورد همان روز را برگرداند؛ در نبود داده UI پیام «هنوز منتشر نشده» نشان می‌دهد. |
+| `GET /public/martyr-of-day` | بدون ورود؛ روایت روز جاری در منطقه‌ی زمانی مورد استفاده‌ی سامانه: `{id, date, name, nationality, birthDate?, deathDate?, imageUrl?, biography, sourceTitle?, sourceUrl?}`. بک‌اند هر روز رکورد همان روز را برگرداند؛ تا زمان اتصال/پاسخ بک‌اند، معرفی زوریک مرادیان به‌عنوان محتوای پیش‌فرض نمایش داده می‌شود. |
 | `POST /auth/otp/send` | `{phone}` → `{expiresIn}` |
 | `POST /auth/otp/verify` | `{phone, code, termsAcceptedAt}` → `{token, user}` |
 | `POST /auth/login` | `{identifier, password}` → `{token, user}` |
