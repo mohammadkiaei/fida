@@ -10,16 +10,19 @@ const errKey = (e) =>
 
 /** Shrinks the JPEG until it fits the 500 KB limit. */
 async function toJpeg(video) {
-  const scale = Math.min(1, 720 / video.videoWidth);
+  let scale = Math.min(1, 720 / video.videoWidth);
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(video.videoWidth * scale);
-  canvas.height = Math.round(video.videoHeight * scale);
-  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-  for (const q of [0.88, 0.75, 0.6, 0.45, 0.3]) {
-    const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", q));
-    if (blob && blob.size <= LIMITS.maxFileKB * 1024) return blob;
+  for (let resizeAttempt = 0; resizeAttempt < 7; resizeAttempt += 1) {
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    canvas.getContext("2d", { alpha: false }).drawImage(video, 0, 0, canvas.width, canvas.height);
+    for (const q of [0.86, 0.7, 0.54, 0.38, 0.24, 0.14]) {
+      const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", q));
+      if (blob && blob.size <= LIMITS.maxFileKB * 1024) return blob;
+    }
+    scale *= 0.75;
   }
-  return new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.2));
+  throw new Error("SELFIE_TOO_LARGE");
 }
 
 /** Live selfie only (no file picker): camera -> capture -> review -> confirm. */
@@ -27,6 +30,7 @@ export default function SelfieCapture({ onConfirm }) {
   const { t } = useI18n();
   const [phase, setPhase] = useState("idle"); // idle | starting | ready | review | error
   const [error, setError] = useState("");
+  const [confirming, setConfirming] = useState(false);
   const [shot, setShot] = useState(null); // { blob, url }
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -72,12 +76,18 @@ export default function SelfieCapture({ onConfirm }) {
   const capture = async () => {
     const v = videoRef.current;
     if (!v?.videoWidth) return;
-    const blob = await toJpeg(v);
-    const url = URL.createObjectURL(blob);
-    urlRef.current = url;
-    setShot({ blob, url });
-    stop();
-    setPhase("review");
+    try {
+      const blob = await toJpeg(v);
+      const url = URL.createObjectURL(blob);
+      urlRef.current = url;
+      setShot({ blob, url });
+      stop();
+      setPhase("review");
+    } catch {
+      setError(t("selfie.tooLarge"));
+      stop();
+      setPhase("error");
+    }
   };
 
   const retake = () => {
@@ -85,6 +95,11 @@ export default function SelfieCapture({ onConfirm }) {
     urlRef.current = null;
     setShot(null);
     start();
+  };
+
+  const confirm = async () => {
+    setConfirming(true);
+    try { await onConfirm(shot.blob); } finally { setConfirming(false); }
   };
 
   return (
@@ -107,7 +122,7 @@ export default function SelfieCapture({ onConfirm }) {
         {phase === "review" && (
           <>
             <Button variant="outline" onClick={retake}>{t("selfie.retake")}</Button>
-            <Button onClick={() => onConfirm(shot.blob)}>{t("selfie.confirm")}</Button>
+            <Button onClick={confirm} loading={confirming} disabled={confirming}>{t("selfie.confirm")}</Button>
           </>
         )}
       </div>

@@ -12,6 +12,7 @@ export const GENDERS = ["male", "female"];
 export const RECORDING = { minSeconds: 4, maxSeconds: 20 };
 export const LIMITS = {
   maxEdits: 3, // an application can be edited up to three times
-  maxFileKB: 500, // identity-document and selfie images
+  maxFileKB: 500, // each image, selfie, or document file
+  maxVideoKB: 2048, // verification video
   registrationWindowMinutes: 30,
 };

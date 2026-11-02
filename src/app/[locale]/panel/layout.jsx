@@ -9,6 +9,8 @@ export default function PanelLayout({ children }) {
   const nav = [
     { path: "/panel", label: t("panel.nav.home"), exact: true },
     { path: "/panel/verify", label: t("panel.nav.verify") },
+    { path: "/panel/legal-entity", label: "شخصیت حقوقی" },
+    { path: "/panel/support", label: "پشتیبانی" },
   ];
   return (
     <AuthGuard role="user">

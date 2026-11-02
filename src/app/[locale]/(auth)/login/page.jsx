@@ -29,6 +29,8 @@ function LoginForm() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [seconds, setSeconds] = useState(0);
+  const [method, setMethod] = useState("phone");
+  const [password, setPassword] = useState("");
 
   useEffect(() => {
     setTermsAt(sessionStorage.getItem(TERMS_KEY));
@@ -78,6 +80,12 @@ function LoginForm() {
     }
   };
 
+  const passwordLogin = async (e) => {
+    e.preventDefault(); setError(""); setBusy(true);
+    try { const res = await api.loginPassword(toEn(phone).trim(), password); signIn(res); goHome(res.user); }
+    catch (err) { setError(errorText(err)); setBusy(false); }
+  };
+
   const verify = async (value) => {
     setError("");
     setBusy(true);
@@ -97,7 +105,15 @@ function LoginForm() {
 
   return (
     <div className="w-full max-w-md rounded-2xl border border-line bg-white p-8 shadow-sm">
-      {step === "phone" ? (
+      {step === "phone" && method === "password" ? (
+        <form onSubmit={passwordLogin} className="space-y-6">
+          <div><h1 className="text-2xl font-bold text-deep">ورود با نام کاربری</h1><p className="mt-2 text-sm leading-7 text-muted">با شماره موبایل یا نام کاربری و گذرواژه وارد شوید.</p></div>
+          <Field id="identifier" label="شماره موبایل یا نام کاربری" value={phone} onChange={(e) => setPhone(e.target.value)} error={error} />
+          <Field id="password" type="password" label="گذرواژه" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Button type="submit" loading={busy} className="w-full">ورود</Button>
+          <button type="button" className="text-sm text-brand" onClick={() => setMethod("phone")}>ورود با شماره موبایل و کد یکبارمصرف</button>
+        </form>
+      ) : step === "phone" ? (
         <form onSubmit={sendCode} noValidate className="space-y-6">
           <div>
             <h1 className="text-2xl font-bold text-deep">{t("login.title")}</h1>
@@ -118,6 +134,7 @@ function LoginForm() {
             {...ltrInput}
           />
           <Button type="submit" loading={busy} className="w-full">{t("login.getCode")}</Button>
+          <button type="button" className="w-full text-sm text-brand" onClick={() => { setMethod("password"); setError(""); }}>ورود با نام کاربری و گذرواژه</button>
           {USE_MOCK && <p className="rounded-lg bg-mist p-3 text-xs leading-6 text-deep">{t("login.demoPhone", { admin: n("09120000000") })}</p>}
         </form>
       ) : (

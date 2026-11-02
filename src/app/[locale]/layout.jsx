@@ -4,6 +4,7 @@ import { ToastProvider } from "@/components/Toast";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { createI18n } from "@/i18n";
 import { dirOf, locales } from "@/i18n/config";
+import SupportChatWidget from "@/components/SupportChatWidget";
 
 export const dynamicParams = false;
 
@@ -29,7 +30,10 @@ export default function RootLayout({ children, params }) {
       <body>
         <I18nProvider locale={locale}>
           <AuthProvider>
-            <ToastProvider>{children}</ToastProvider>
+            <ToastProvider>
+              {children}
+              <SupportChatWidget />
+            </ToastProvider>
           </AuthProvider>
         </I18nProvider>
       </body>

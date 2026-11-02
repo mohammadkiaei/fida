@@ -18,7 +18,7 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { cn, isPlainAddress, isProfileComplete, toEn } from "@/lib/utils";
 
 const STEPS = ["documents", "details", "selfie", "video"];
-const FIELDS = ["docType", "docNumber", "docIssueDate", "docExpiryDate", "firstName", "lastName", "fatherName", "birthDate", "gender", "nationality", "address"];
+const FIELDS = ["applicantType", "docType", "docNumber", "docIssueDate", "docExpiryDate", "passportCountry", "passportAuthority", "firstName", "lastName", "firstNameFa", "lastNameFa", "motherTongue", "challengeLanguage", "fatherName", "fatherNameFa", "motherName", "motherNameFa", "grandfatherName", "grandfatherNameFa", "birthDate", "birthCountry", "gender", "nationality", "phone", "province", "city", "address"];
 const DRAFT_KEY = "fida_draft_v1";
 const today = () => new Date().toISOString().slice(0, 10);
 const initialForm = (u) => Object.fromEntries(FIELDS.map((k) => [k, u?.[k] || ""]));
@@ -53,8 +53,8 @@ export default function VerifyPage() {
 
   useEffect(() => {
     if (step !== "video" || challenge) return;
-    api.getChallenge(locale).then(setChallenge).catch((e) => setChallengeError(errorText(e)));
-  }, [step, challenge, locale, errorText]);
+    api.getChallenge(form.challengeLanguage || locale).then(setChallenge).catch((e) => setChallengeError(errorText(e)));
+  }, [step, challenge, locale, form.challengeLanguage, errorText]);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const complete = isProfileComplete(user);
@@ -75,7 +75,7 @@ export default function VerifyPage() {
     const e = {};
     if (form.firstName.trim().length < 2) e.firstName = req;
     if (form.lastName.trim().length < 2) e.lastName = req;
-    ["birthDate", "gender", "nationality", "address"].forEach((k) => !String(form[k]).trim() && (e[k] = req));
+    ["firstNameFa", "lastNameFa", "motherTongue", "challengeLanguage", "fatherName", "fatherNameFa", "motherName", "motherNameFa", "grandfatherName", "grandfatherNameFa", "birthDate", "birthCountry", "gender", "nationality", "phone", "province", "city", "address"].forEach((k) => !String(form[k] || "").trim() && (e[k] = req));
     if (form.birthDate && form.birthDate >= today()) e.birthDate = t("profile.err.future");
     if (form.address && !isPlainAddress(form.address)) e.address = t("profile.err.address");
     else if (form.address && form.address.trim().length < 10) e.address = t("profile.err.addressShort");
@@ -84,11 +84,12 @@ export default function VerifyPage() {
 
   const focusFirstError = () => setTimeout(() => document.querySelector('[aria-invalid="true"]')?.focus(), 0);
 
-  const nextFromDocs = () => {
+  const nextFromDocs = async () => {
     const e = validateDocs();
     setErrors(e);
     if (Object.keys(e).length) return focusFirstError();
-    setStep("details");
+    try { await api.saveStep("documents", { applicantType: form.applicantType || "individual", docType: form.docType, docNumber: form.docNumber, docIssueDate: form.docIssueDate, docExpiryDate: form.docExpiryDate, documents: user.documents }); setStep("details"); }
+    catch (err) { toast(errorText(err), "error"); }
   };
 
   const saveDetails = async () => {
@@ -103,6 +104,7 @@ export default function VerifyPage() {
       setSaving(true);
       try {
         setUser(await api.updateMe({ ...form, docNumber: toEn(form.docNumber) }));
+        await api.saveStep("details", form);
         sessionStorage.removeItem(DRAFT_KEY);
         toast(t("profile.saved"));
       } catch (err) {
@@ -112,6 +114,7 @@ export default function VerifyPage() {
       }
       setSaving(false);
     }
+    try { await api.saveStep("details", form); } catch (err) { toast(errorText(err), "error"); return; }
     setStep("selfie");
   };
 
@@ -121,6 +124,11 @@ export default function VerifyPage() {
     try {
       const res = await api.submitVerification({ challengeId: challenge.id, video, selfie }, setProgress);
       setTracking(res.trackingCode || "");
+      const payment = await api.startPayment({ trackingCode: res.trackingCode, locale });
+      if (payment.checkoutUrl) {
+        window.location.assign(payment.checkoutUrl);
+        return;
+      }
       setStep("done");
       setSelfie(null);
       setChallenge(null);
@@ -213,20 +221,22 @@ export default function VerifyPage() {
               </div>
               <fieldset disabled={locked} className="space-y-5">
                 <div className="grid gap-5 sm:grid-cols-2">
+                  <Field id="applicantType" as="select" label="نوع متقاضی" value={form.applicantType || "individual"} onChange={set("applicantType")}><option value="individual">شخص حقیقی</option><option value="legal">شخص حقوقی</option></Field>
                   <Field id="docType" as="select" required label={t("profile.docType")} value={form.docType} onChange={set("docType")} error={errors.docType} className="sm:col-span-2">
                     <option value="">{t("profile.choose")}</option>
                     {DOC_TYPES.map((d) => (
                       <option key={d} value={d}>{t(`docTypes.${d}`)}</option>
                     ))}
                   </Field>
+                  {form.docType === "passport" && <><Field id="passportCountry" label="کشور صادرکننده گذرنامه" value={form.passportCountry} onChange={set("passportCountry")} /><Field id="passportAuthority" label="مرجع صادرکننده" value={form.passportAuthority} onChange={set("passportAuthority")} /></>}
+                  {form.applicantType === "legal" && <div className="rounded-xl bg-mist p-4 text-sm leading-7 sm:col-span-2">برای پرونده‌ی حقوقی، اطلاعات نماینده و مدارک شرکت را در <Link href={href("/panel/legal-entity")} className="font-bold text-brand underline">بخش شخصیت حقوقی</Link> تکمیل کنید.</div>}
                   <Field id="docNumber" required label={t("profile.docNumber")} value={form.docNumber} onChange={set("docNumber")} error={errors.docNumber} autoComplete="off" maxLength={20} {...ltrInput} />
                   <div className="hidden sm:block" aria-hidden="true" />
                   <Field id="docIssueDate" type="date" required label={t("profile.docIssue")} max={today()} value={form.docIssueDate} onChange={set("docIssueDate")} error={errors.docIssueDate} hint={t("profile.docIssueHint")} />
                   <Field id="docExpiryDate" type="date" required label={t("profile.docExpiry")} value={form.docExpiryDate} onChange={set("docExpiryDate")} error={errors.docExpiryDate} />
                 </div>
                 <div className="grid gap-5 sm:grid-cols-2">
-                  <DocUpload slot={0} required label={t("profile.doc1")} hint={t("profile.doc1Hint")} disabled={locked} />
-                  <DocUpload slot={1} label={t("profile.doc2")} hint={t("profile.doc2Hint")} disabled={locked} />
+                  {Array.from({ length: 6 }, (_, slot) => <DocUpload key={slot} slot={slot} required={slot === 0} label={`${t("profile.doc1")} — صفحه ${slot + 1}`} hint={slot === 0 ? t("profile.doc1Hint") : "صفحه‌ی اضافی مدرک (اختیاری)"} disabled={locked} />)}
                 </div>
                 {errors.documents && <p role="alert" className="text-xs text-red-600">{errors.documents}</p>}
               </fieldset>
@@ -248,8 +258,20 @@ export default function VerifyPage() {
                   <Field id="firstName" required label={t("profile.firstName")} value={form.firstName} onChange={set("firstName")} error={errors.firstName} autoComplete="given-name" />
                   <Field id="lastName" required label={t("profile.lastName")} value={form.lastName} onChange={set("lastName")} error={errors.lastName} autoComplete="family-name" />
                   <p className="-mt-2 text-xs leading-6 text-muted sm:col-span-2">{t("profile.nameHint")}</p>
-                  <Field id="fatherName" label={t("profile.fatherName")} value={form.fatherName} onChange={set("fatherName")} />
+                  <Field id="firstNameFa" required label={t("profile.firstNameFa")} value={form.firstNameFa} onChange={set("firstNameFa")} error={errors.firstNameFa} />
+                  <Field id="lastNameFa" required label={t("profile.lastNameFa")} value={form.lastNameFa} onChange={set("lastNameFa")} error={errors.lastNameFa} />
+                  <Field id="motherTongue" required label={t("profile.motherTongue")} value={form.motherTongue} onChange={set("motherTongue")} error={errors.motherTongue} />
+                  <Field id="challengeLanguage" as="select" required label={t("profile.challengeLanguage")} value={form.challengeLanguage || ""} onChange={set("challengeLanguage")} error={errors.challengeLanguage}>
+                    <option value="">{t("profile.choose")}</option><option value="fa">فارسی</option><option value="en">English</option><option value="ar">العربية</option><option value="ps">پښتو</option><option value="ur">اردو</option><option value="tr">Türkçe</option>
+                  </Field>
+                  <Field id="fatherName" required label={t("profile.fatherNameLatin")} value={form.fatherName} onChange={set("fatherName")} error={errors.fatherName} />
+                  <Field id="fatherNameFa" required label={t("profile.fatherNameFa")} value={form.fatherNameFa} onChange={set("fatherNameFa")} error={errors.fatherNameFa} />
+                  <Field id="motherName" required label={t("profile.motherNameLatin")} value={form.motherName} onChange={set("motherName")} error={errors.motherName} />
+                  <Field id="motherNameFa" required label={t("profile.motherNameFa")} value={form.motherNameFa} onChange={set("motherNameFa")} error={errors.motherNameFa} />
+                  <Field id="grandfatherName" required label={t("profile.grandfatherNameLatin")} value={form.grandfatherName} onChange={set("grandfatherName")} error={errors.grandfatherName} />
+                  <Field id="grandfatherNameFa" required label={t("profile.grandfatherNameFa")} value={form.grandfatherNameFa} onChange={set("grandfatherNameFa")} error={errors.grandfatherNameFa} />
                   <Field id="birthDate" type="date" required label={t("profile.birthDate")} max={today()} value={form.birthDate} onChange={set("birthDate")} error={errors.birthDate} />
+                  <Field id="birthCountry" required label={t("profile.birthCountry")} value={form.birthCountry} onChange={set("birthCountry")} error={errors.birthCountry} />
                   <Field id="gender" as="select" required label={t("profile.gender")} value={form.gender} onChange={set("gender")} error={errors.gender}>
                     <option value="">{t("profile.choose")}</option>
                     {GENDERS.map((g) => (
@@ -264,6 +286,9 @@ export default function VerifyPage() {
                       ))}
                     </datalist>
                   </div>
+                  <Field id="phone" type="tel" required label={t("profile.phone")} value={form.phone} onChange={set("phone")} error={errors.phone} {...ltrInput} />
+                  <Field id="province" required label={t("profile.province")} value={form.province} onChange={set("province")} error={errors.province} />
+                  <Field id="city" required label={t("profile.city")} value={form.city} onChange={set("city")} error={errors.city} />
                 </div>
                 <Field id="address" as="textarea" rows={3} required label={t("profile.address")} value={form.address} onChange={set("address")} error={errors.address} hint={t("profile.addressHint")} />
               </fieldset>
@@ -283,12 +308,7 @@ export default function VerifyPage() {
                 ))}
               </ul>
               <p className="my-5 text-sm leading-7 text-muted">{t("verify.selfieText")}</p>
-              <SelfieCapture
-                onConfirm={(blob) => {
-                  setSelfie(blob);
-                  setStep("video");
-                }}
-              />
+              <SelfieCapture onConfirm={async (blob) => { try { await api.submitSelfie(blob); await api.saveStep("selfie", { accepted: true }); setSelfie(blob); setStep("video"); } catch (err) { toast(errorText(err), "error"); } }} />
               <button className="mt-5 text-sm text-muted hover:text-brand" onClick={() => setStep("details")}>{t("verify.back")}</button>
             </section>
           )}
@@ -297,7 +317,7 @@ export default function VerifyPage() {
             <section className="rounded-2xl bg-white p-6 ring-1 ring-line">
               {challengeError && <p role="alert" className="text-red-600">{challengeError}</p>}
               {!challenge && !challengeError && <p className="text-muted">{t("verify.gettingSentence")}</p>}
-              {challenge && <VideoRecorder sentence={challenge.sentence} onSubmit={submit} submitting={submitting} progress={progress} />}
+              {challenge && <VideoRecorder sentence={challenge.sentence} gestures={challenge.gestures} onSubmit={submit} submitting={submitting} progress={progress} />}
               <button className="mt-5 text-sm text-muted hover:text-brand" onClick={() => setStep("selfie")} disabled={submitting}>
                 {t("verify.backToSelfie")}
               </button>

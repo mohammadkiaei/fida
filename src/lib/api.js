@@ -71,26 +71,46 @@ function uploadWithProgress(path, form, onProgress) {
 const ext = (blob) => (blob.type.includes("mp4") ? "mp4" : blob.type.includes("webm") ? "webm" : "jpg");
 
 const realApi = {
+  getMartyrOfDay: () => http("/public/martyr-of-day"),
   sendOtp: (phone) => http("/auth/otp/send", { method: "POST", body: { phone } }),
   verifyOtp: (phone, code, extra = {}) => http("/auth/otp/verify", { method: "POST", body: { phone, code, ...extra } }), // -> { token, user }
+  loginPassword: (identifier, password) => http("/auth/login", { method: "POST", body: { identifier, password } }),
   getMe: () => http("/me"),
   updateMe: (data) => http("/me", { method: "PUT", body: data }),
+  saveStep: (step, data) => http(`/verification/steps/${step}`, { method: "PUT", body: data }),
   uploadDocument: (slot, file) => {
+    if (file.size > LIMITS.maxFileKB * 1024) throw new ApiError("FILE_TOO_LARGE", 413);
     const form = new FormData();
     form.append("slot", String(slot));
     form.append("file", file);
     return http("/me/documents", { method: "POST", form }); // -> user
   },
   removeDocument: (slot) => http(`/me/documents/${slot}`, { method: "DELETE" }), // -> user
-  getChallenge: (locale) => http(`/verification/challenge?lang=${locale}`), // -> { id, sentence }
+  getChallenge: (locale) => http(`/verification/challenge?lang=${encodeURIComponent(locale)}`), // -> { id, sentence, gestures }
   getMyVerification: () => http("/verification/me"),
   submitVerification: ({ challengeId, video, selfie }, onProgress) => {
+    if (video.size > LIMITS.maxVideoKB * 1024) throw new ApiError("FILE_TOO_LARGE", 413);
     const form = new FormData();
     form.append("challengeId", challengeId);
-    form.append("selfie", selfie, `selfie.${ext(selfie)}`);
     form.append("video", video, `verification.${ext(video)}`);
-    return uploadWithProgress("/verification", form, onProgress); // -> { status, trackingCode }
+    return uploadWithProgress("/verification/video", form, onProgress); // selfie has its own validated endpoint
   },
+  submitSelfie: (selfie) => {
+    if (selfie.size > LIMITS.maxFileKB * 1024) throw new ApiError("FILE_TOO_LARGE", 413);
+    const form = new FormData(); form.append("selfie", selfie, "selfie.jpg"); return http("/verification/selfie", { method: "POST", form });
+  },
+  listLegalEntities: () => http("/legal-entities/me"),
+  getLegalEntity: (id) => http(`/legal-entities/me/${encodeURIComponent(id)}`),
+  createLegalEntity: (data = {}) => http("/legal-entities/me", { method: "POST", body: data }),
+  saveLegalEntity: (id, data) => http(`/legal-entities/me/${encodeURIComponent(id)}`, { method: "PUT", body: data }),
+  uploadLegalDocument: (entityId, category, file, pageIndex = 0) => {
+    if (file.size > LIMITS.maxFileKB * 1024) throw new ApiError("FILE_TOO_LARGE", 413);
+    const form = new FormData(); form.append("entityId", entityId); form.append("category", category); form.append("pageIndex", String(pageIndex)); form.append("file", file); return http(`/legal-entities/me/${encodeURIComponent(entityId)}/documents`, { method: "POST", form });
+  },
+  sendSupportMessage: (message, channel = "ai", context = {}) => http("/support/messages", { method: "POST", body: { message, channel, ...context } }),
+  getSupportMessages: (conversationId, visitorId, after = "") => http(`/support/conversations/${encodeURIComponent(conversationId)}/messages?visitorId=${encodeURIComponent(visitorId)}&after=${encodeURIComponent(after)}`),
+  startPayment: (data) => http("/payments/start", { method: "POST", body: data }),
+  getPaymentResult: (paymentId) => http(`/payments/${encodeURIComponent(paymentId)}/result`),
   receive: {
     sendOtp: (phone) => http("/special-number/otp/send", { method: "POST", body: { phone } }),
     verifyOtp: (phone, code) => http("/special-number/otp/verify", { method: "POST", body: { phone, code } }), // -> { ticket }
@@ -111,7 +131,7 @@ const realApi = {
 /* Mock API (browser only)                                             */
 /* ------------------------------------------------------------------ */
 
-const DB_KEY = "fida_mock_db_v2";
+const DB_KEY = "fida_mock_db_v3";
 const wait = (ms = 450) => new Promise((r) => setTimeout(r, ms));
 const media = new Map(); // in-memory object URLs (live until the tab reloads): "v:<id>" -> {video, selfie}, "d:<userId>:<slot>"
 
@@ -145,7 +165,8 @@ function seed() {
     { id: "v2", userId: "u3", status: "approved", sentence: SENTENCES.en[1].replace("{n}", "308"), trackingCode: "FD104193377", submittedAt: ago(100), decidedAt: ago(96), rejectionReason: "" },
     { id: "v3", userId: "u4", status: "rejected", sentence: SENTENCES.en[2].replace("{n}", "915"), trackingCode: "FD104002264", submittedAt: ago(70), decidedAt: ago(60), rejectionReason: "The photo on the document was not readable. Please upload a clear colour image." },
   ];
-  return { users, verifications, otps: {}, challenges: {}, tickets: {} };
+  users.forEach((u) => { u.password = "fida-demo"; });
+  return { users, verifications, otps: {}, challenges: {}, tickets: {}, payments: {} };
 }
 
 function db() {
@@ -194,6 +215,7 @@ function issueOtp(phone) {
 }
 
 const mockApi = {
+  async getMartyrOfDay() { await wait(150); return null; },
   async sendOtp(phone) {
     await wait();
     return issueOtp(phone);
@@ -204,11 +226,83 @@ const mockApi = {
     const p = checkOtp(d, phone, code);
     let user = d.users.find((u) => u.phone === p);
     if (!user) {
-      user = { id: "u" + Date.now(), phone: p, role: "user", ...blank, firstName: "", lastName: "", createdAt: new Date().toISOString() };
+      user = { id: "u" + Date.now(), phone: p, role: "user", ...blank, firstName: "", lastName: "", password: "fida-demo", createdAt: new Date().toISOString() };
       d.users.push(user);
     }
     save(d);
     return { token: "mock-" + user.id, user: publicUser(d, user) };
+  },
+  async loginPassword(identifier, password) {
+    await wait();
+    const d = db();
+    const user = d.users.find((u) => u.phone === toEn(identifier).trim() || u.username === identifier);
+    if (!user || !user.password || user.password !== password) throw new ApiError("INVALID_CREDENTIALS", 401);
+    return { token: `mock-${user.id}`, user: publicUser(d, user) };
+  },
+  async saveStep(step, data) {
+    await wait(180);
+    const d = db(); const u = currentUser(d);
+    u.steps = { ...(u.steps || {}), [step]: { ...data, savedAt: new Date().toISOString() } };
+    save(d); return { ok: true, step };
+  },
+  async submitSelfie(selfie) {
+    await wait(300);
+    if (selfie.size > LIMITS.maxFileKB * 1024) throw new ApiError("FILE_TOO_LARGE", 413);
+    const d = db(); const u = currentUser(d);
+    if (!u.documents?.some(Boolean)) throw new ApiError("DOCUMENT_REQUIRED", 400);
+    media.set(`selfie:${u.id}`, URL.createObjectURL(selfie));
+    return { accepted: true, next: "video" };
+  },
+  async listLegalEntities() {
+    await wait(180); const d = db(); const u = currentUser(d);
+    u.legalEntities = Array.isArray(u.legalEntities) ? u.legalEntities : (u.legalEntity ? [{ ...u.legalEntity, id: "legacy-legal-entity", status: "draft" }] : []);
+    delete u.legalEntity;
+    save(d);
+    return u.legalEntities.map(({ id, companyNameFa, companyNameLatin, registrationNumber, status, updatedAt, documents = {} }) => ({ id, companyNameFa, companyNameLatin, registrationNumber, status: status || "draft", updatedAt, documentCount: Object.values(documents).reduce((sum, pages) => sum + (Array.isArray(pages) ? pages.length : pages ? 1 : 0), 0) }));
+  },
+  async getLegalEntity(id) {
+    await wait(180); const d = db(); const u = currentUser(d); const entity = (u.legalEntities || []).find((item) => item.id === id);
+    if (!entity) throw new ApiError("NOT_FOUND", 404);
+    const documents = Object.fromEntries(Object.entries(entity.documents || {}).map(([category, value]) => [category, (Array.isArray(value) ? value : value ? [value] : []).map((page, index) => ({ ...page, url: media.get(`legal:${u.id}:${id}:${category}:${index}`) || page.url || "" }))]));
+    return { ...entity, documents };
+  },
+  async createLegalEntity(data = {}) {
+    await wait(180); const d = db(); const u = currentUser(d); u.legalEntities = u.legalEntities || [];
+    const entity = { id: `le${Date.now()}`, ...data, documents: {}, status: "draft", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    u.legalEntities.push(entity); save(d); return entity;
+  },
+  async saveLegalEntity(id, data) {
+    await wait(200); const d = db(); const u = currentUser(d); const entity = (u.legalEntities || []).find((item) => item.id === id);
+    if (!entity) throw new ApiError("NOT_FOUND", 404);
+    Object.assign(entity, data, { updatedAt: new Date().toISOString() });
+    const requiredFields = ["companyNameFa", "companyNameLatin", "registrationNumber", "registrationDate", "registrationCountry", "activityType", "fixedPhone", "ownershipType", "mobile", "managers", "managerIdentity", "representativeName", "representativeNationality", "representativeDocument", "address"];
+    const requiredDocs = ["representativeIdentity", "companyIntroduction", "companyRegistration", "businessLicense", "articlesOfAssociation"];
+    entity.status = requiredFields.every((key) => String(entity[key] || "").trim()) && requiredDocs.every((key) => entity.documents?.[key]?.length) ? "complete" : "draft";
+    save(d); return entity;
+  },
+  async uploadLegalDocument(entityId, category, file, pageIndex = 0) {
+    await wait(250); if (file.size > LIMITS.maxFileKB * 1024) throw new ApiError("FILE_TOO_LARGE", 413);
+    const d = db(); const u = currentUser(d); const entity = (u.legalEntities || []).find((item) => item.id === entityId);
+    if (!entity) throw new ApiError("NOT_FOUND", 404);
+    entity.documents = entity.documents || {}; const pages = entity.documents[category] || [];
+    pages[pageIndex] = { name: file.name, size: file.size, type: file.type }; entity.documents[category] = pages;
+    media.set(`legal:${u.id}:${entityId}:${category}:${pageIndex}`, URL.createObjectURL(file)); save(d); return { ok: true };
+  },
+  async sendSupportMessage(message, channel = "ai", context = {}) { await wait(350); return { id: `m${Date.now()}`, conversationId: context.conversationId || `chat-${context.visitorId || "guest"}`, channel, message, reply: channel === "ai" ? "پیامتان دریافت شد. دستیار فیدا به‌زودی راهنمایی‌تان می‌کند." : "پیامتان در صف پشتیبانی انسانی ثبت شد. پاسخ در همین گفت‌وگو نمایش داده می‌شود." }; },
+  async getSupportMessages() { await wait(100); return []; },
+  async startPayment({ trackingCode, locale = "fa" }) {
+    await wait(300);
+    const d = db(); const u = currentUser(d); const paymentId = `mp${Date.now()}`;
+    d.payments = d.payments || {};
+    d.payments[paymentId] = { userId: u.id, trackingCode, status: "paid", paidAt: new Date().toISOString() };
+    save(d);
+    return { paymentId, checkoutUrl: `${window.location.origin}/${locale}/panel/payment-result?paymentId=${paymentId}` };
+  },
+  async getPaymentResult(paymentId) {
+    await wait(200);
+    const d = db(); const u = currentUser(d); const payment = d.payments?.[paymentId];
+    if (!payment || payment.userId !== u.id) throw new ApiError("NOT_FOUND", 404);
+    return { status: payment.status, trackingCode: payment.trackingCode, paidAt: payment.paidAt };
   },
   async getMe() {
     await wait(200);
@@ -228,6 +322,21 @@ const mockApi = {
       firstName: clean(data.firstName),
       lastName: clean(data.lastName),
       fatherName: clean(data.fatherName),
+      fatherNameFa: clean(data.fatherNameFa),
+      firstNameFa: clean(data.firstNameFa),
+      lastNameFa: clean(data.lastNameFa),
+      motherTongue: clean(data.motherTongue),
+      challengeLanguage: clean(data.challengeLanguage),
+      motherName: clean(data.motherName),
+      motherNameFa: clean(data.motherNameFa),
+      grandfatherName: clean(data.grandfatherName),
+      grandfatherNameFa: clean(data.grandfatherNameFa),
+      birthCountry: clean(data.birthCountry),
+      phone: clean(data.phone),
+      province: clean(data.province),
+      city: clean(data.city),
+      passportCountry: clean(data.passportCountry),
+      passportAuthority: clean(data.passportAuthority),
       gender: data.gender,
       nationality: clean(data.nationality),
       docType: data.docType,
@@ -246,7 +355,7 @@ const mockApi = {
     const u = currentUser(d);
     if (file.size > LIMITS.maxFileKB * 1024) throw new ApiError("FILE_TOO_LARGE", 400);
     u.documents = u.documents || [null, null];
-    u.documents[slot] = { name: file.name, size: file.size };
+    u.documents[slot] = { name: file.name, size: file.size, type: file.type };
     media.set(`d:${u.id}:${slot}`, URL.createObjectURL(file));
     save(d);
     return publicUser(d, u);
@@ -264,16 +373,19 @@ const mockApi = {
     await wait(250);
     const d = db();
     const u = currentUser(d);
-    const n = String(Math.floor(100 + Math.random() * 900));
-    const list = SENTENCES[locale] || SENTENCES.fa;
-    const sentence = list[Math.floor(Math.random() * list.length)].replace(
-      "{n}",
-      locale === "fa" ? n.replace(/\d/g, (x) => "۰۱۲۳۴۵۶۷۸۹"[x]) : n
-    );
+    const code = String(Math.floor(10000 + Math.random() * 90000));
+    const words = locale === "fa" ? ["دریا", "باران", "سپید", "بهار", "آفتاب", "امید", "آرام", "سبز", "روشن", "دوستی"] : ["river", "rain", "spring", "sunlight", "hope", "calm", "green", "bright", "kindness", "blue"];
+    const spoken = Array.from({ length: 3 }, () => words[Math.floor(Math.random() * words.length)]);
+    const name = `${u.firstName || "متقاضی"} ${u.lastName || "فیدا"}`.trim();
+    const sentence = locale === "en"
+      ? `I, ${name}, with Fida identity verification code ${code}, confirm my identity in the Fida system. I will now read these three words: ${spoken.join(", ")}.`
+      : `من ${name} با کد احراز هویتی ${code}، تأیید احراز هویت خود را در سامانه فیدا اعلام می‌دارم. سه واژه: ${spoken.join("، ")}.`;
     const id = "c" + Date.now();
-    d.challenges[id] = { userId: u.id, sentence };
+    const patternPool = [0, 1, 2, 3, 4, 5, 6, 9].sort(() => Math.random() - 0.5);
+    const gestures = { handPatterns: patternPool.slice(0, 3), headSequence: Math.random() < 0.5 ? ["left", "right"] : ["right", "left"], smile: true };
+    d.challenges[id] = { userId: u.id, sentence, code, words: spoken, gestures };
     save(d);
-    return { id, sentence };
+    return { id, sentence, gestures };
   },
   async getMyVerification() {
     await wait(250);
@@ -285,6 +397,7 @@ const mockApi = {
       : { status: "not_started" };
   },
   async submitVerification({ challengeId, video, selfie }, onProgress) {
+    if (video.size > LIMITS.maxVideoKB * 1024) throw new ApiError("FILE_TOO_LARGE", 413);
     const d = db();
     const u = currentUser(d);
     const ch = d.challenges[challengeId];

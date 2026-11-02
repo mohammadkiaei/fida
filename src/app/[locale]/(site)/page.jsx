@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Button from "@/components/Button";
+import DailyMartyr from "@/components/DailyMartyr";
 import { site } from "@/config/site";
 import { listArticles } from "@/content/articles";
 import { createI18n } from "@/i18n";
@@ -61,6 +62,8 @@ export default function HomePage({ params }) {
           <ViewfinderDemo t={t} n={n} />
         </div>
       </section>
+
+      <DailyMartyr labels={{ eyebrow: t("home.martyr.eyebrow"), title: t("home.martyr.title"), loading: t("home.martyr.loading"), empty: t("home.martyr.empty"), source: t("home.martyr.source") }} />
 
       <section id="what" className="container-page py-20">
         <div className="grid items-center gap-10 md:grid-cols-[1fr_1fr] lg:gap-16">
